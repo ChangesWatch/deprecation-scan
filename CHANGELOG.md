@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.0
+
+- Group findings by exact package and version in the GitHub job summary.
+- Add urgent/high/attention prioritization for passed deadlines, upcoming deadlines, and registry deprecations.
+- Preserve direct/transitive context, dependency paths, evidence URLs, and migration recommendations in the report.
+- Separate registry coverage warnings from deprecation findings and sanitize untrusted registry text before annotations and summaries.
+
 ## Unreleased
 
 - Clarified the Action's privacy model, read-only permissions, SHA-pinning option, and v1 beta boundaries.

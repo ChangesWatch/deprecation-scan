@@ -1,5 +1,7 @@
 # Changes.Watch Deprecation Scan
 
+Result contract: v2 (grouped deprecation readiness findings).
+
 [![CI](https://github.com/ChangesWatch/deprecation-scan/actions/workflows/ci.yml/badge.svg)](https://github.com/ChangesWatch/deprecation-scan/actions/workflows/ci.yml)
 [View on GitHub Marketplace](https://github.com/marketplace/actions/changes-watch-deprecation-scan)
 
@@ -64,7 +66,7 @@ release commit instead:
 
 ## Outputs
 
-`deadline-passed-count`, `upcoming-count`, `deprecated-package-count`, `registry-checked-count`, `registry-candidate-count`, `scan-complete`, and `report-path`.
+`deadline-passed-count`, `upcoming-count`, `deprecated-package-count`, `urgent-count`, `high-count`, `attention-count`, `grouped-count`, `registry-checked-count`, `registry-candidate-count`, `scan-complete`, and `report-path`.
 
 `report-path` is a runner-local JSON report at `.changes-watch/deprecation-report.json`. Upload it with `actions/upload-artifact` only if your repository policy permits that. Verified catalog findings in the GitHub Job Summary link directly to their Changes.Watch update card, where teams can assess the signal and subscribe to the affected product.
 
@@ -74,6 +76,13 @@ limit is reached, `scan-complete` is `false` and the summary reports
 `Registry checked: checked/candidates`; it never treats partial registry
 coverage as a clean result. Raise `max-registry-checks` only up to the hard
 limit of 2,000.
+
+The GitHub job summary is organized by package rather than by raw warning. Each
+group includes priority, direct/transitive context, deadline status, and the
+recommended next action. Coverage notes (caps, registry errors, and unresolved
+sources) are shown in a separate section so they cannot be mistaken for a
+deprecation finding. The JSON report includes the full finding evidence,
+dependency paths, source links, and migration recommendation fields.
 
 ## CLI
 
@@ -101,6 +110,11 @@ The CLI reads `package.json`, `package-lock.json`, `pnpm-lock.yaml`, and common 
 - `deadline_passed`: a human-verified active notice has an effective date before today and matches the exact installed package version.
 - `upcoming`: a matching verified effective date falls inside `upcoming-days`.
 - `registry_deprecated`: npm marks the exact installed version as deprecated. The job summary links it to a version-specific Changes.Watch package-status page labelled as automated npm data, never as a verified editorial card.
+
+Catalog findings are prioritized as `urgent` (deadline passed), `high` (deadline
+inside the configured window), or `attention` (registry deprecation). Findings
+are grouped by exact package and version while preserving every source file and
+dependency path in the report.
 
 Every catalog finding includes the official vendor source and Changes.Watch detail URL. Registry failures warn independently and do not turn a scan into a false clean result.
 
