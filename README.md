@@ -1,8 +1,19 @@
 # Changes.Watch Deprecation Scan
 
-Privacy-first npm, pnpm, and Yarn dependency checks powered by the public [Changes.Watch deprecation catalog](https://www.changes.watch/developers/deprecations-catalog).
+[![CI](https://github.com/ChangesWatch/deprecation-scan/actions/workflows/ci.yml/badge.svg)](https://github.com/ChangesWatch/deprecation-scan/actions/workflows/ci.yml)
+[View on GitHub Marketplace](https://github.com/marketplace/actions/changes-watch-deprecation-scan)
+
+Catch deprecated npm, pnpm, and Yarn dependencies before they become production
+incidents. The Action combines exact registry metadata with human-verified vendor
+migration deadlines from the public [Changes.Watch deprecation catalog](https://www.changes.watch/developers/deprecations-catalog).
 
 > **Beta.** `v1` is warn-only: findings are emitted in the job summary and as GitHub annotations, but do not fail the workflow.
+
+## Why teams install it
+
+- **No secrets required.** The workflow needs only `contents: read`.
+- **Repository files stay in the runner.** Manifests, lockfiles, paths, and source code are never uploaded to Changes.Watch.
+- **Evidence over guesses.** Every catalog finding carries an official vendor source; version-specific registry findings are based on exact installed versions.
 
 ## GitHub Action
 
@@ -29,6 +40,16 @@ jobs:
 ```
 
 The Action reads repository files in the GitHub runner. It does not upload manifests, lockfiles, repository paths, or source code to Changes.Watch. Network requests are limited to the fixed public Changes.Watch catalog and exact-version npm registry metadata. It never runs package-manager commands or lifecycle scripts.
+
+### Security-conscious pinning
+
+`ChangesWatch/deprecation-scan@v1` follows the maintained v1 beta release line. If
+your organization requires an immutable dependency reference, pin the verified
+release commit instead:
+
+```yaml
+- uses: ChangesWatch/deprecation-scan@70dba10f5c4c45da1e2dde76671da5aeb32c32b5 # v1.0.1
+```
 
 ## Inputs
 
@@ -74,6 +95,13 @@ The CLI reads `package.json`, `package-lock.json`, `pnpm-lock.yaml`, and common 
 - `registry_deprecated`: npm marks the exact installed version as deprecated.
 
 Every catalog finding includes the official vendor source and Changes.Watch detail URL. Registry failures warn independently and do not turn a scan into a false clean result.
+
+## What this Action does not do
+
+- It is not a vulnerability, license, or malware scanner, and does not replace `npm audit`.
+- It does not create GitHub Issues, pull requests, commits, or comments.
+- It does not block a workflow in the v1 public beta.
+- It does not infer deprecation deadlines from package prose or report an unresolved version range as clean.
 
 ## Security
 
