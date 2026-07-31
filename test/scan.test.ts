@@ -31,7 +31,30 @@ describe("scanRepository", () => {
     });
     const report = await scanRepository({ root, catalog, registryChecks: false });
     expect(report.summary.deadlinePassed).toBe(1);
+    expect(report.summary).toMatchObject({ urgent: 1, grouped: 1 });
+    expect(report.groups[0]).toMatchObject({ package: "@vendor/legacy-client", severity: "urgent", deadlineStatus: "passed", relationship: "direct" });
     expect(report.findings[0]).toMatchObject({ package: "@vendor/legacy-client", version: "3.2.1", relationship: "direct", kind: "deadline_passed" });
+  });
+
+  it("adds a migration recommendation and groups registry findings by package version", async () => {
+    const root = await fixture({
+      "package.json": JSON.stringify({ dependencies: { request: "2.88.2" } }),
+      "package-lock.json": JSON.stringify({ lockfileVersion: 3, packages: {
+        "": { dependencies: { request: "2.88.2" } },
+        "node_modules/request": { version: "2.88.2" },
+        "node_modules/request/node_modules/har-validator": { version: "5.1.5" },
+      } }),
+    });
+    const fetch = vi.fn().mockImplementation(async (url: string) => new Response(JSON.stringify({ deprecated: url.includes("request") ? "request has been deprecated" : undefined }), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    try {
+      const report = await scanRepository({ root, catalog: { ...catalog, notices: [] }, maxRegistryLookups: 10 });
+      expect(report.summary.attention).toBeGreaterThanOrEqual(1);
+      expect(report.groups.find((group) => group.package === "request")).toMatchObject({ severity: "attention", recommendation: expect.stringContaining("maintained replacement") });
+      expect(report.findings.find((finding) => finding.package === "request")).toMatchObject({ source: "npm_registry", deadlineStatus: "registry_deprecated" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("does not treat unresolved manifest ranges as exact installed versions", async () => {

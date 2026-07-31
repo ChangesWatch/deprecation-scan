@@ -6,6 +6,10 @@ const targetSchema = z.object({
   affectedRange: z.string().min(1).max(200),
   targetKind: z.enum(["direct", "transitive", "runtime", "cli", "build", "peer", "unknown"]),
   replacementPackage: z.string().min(1).max(214).nullable(),
+  migrationStrategy: z.enum(["upgrade", "replace", "remove", "manual", "unknown"]).optional(),
+  replacementVersion: z.string().max(200).nullable().optional(),
+  codemodCommand: z.string().max(500).nullable().optional(),
+  breakingChanges: z.string().max(1000).nullable().optional(),
 });
 
 const noticeSchema = z.object({
@@ -37,22 +41,61 @@ export type Dependency = {
   version: string | null;
   source: string;
   relationship: "direct" | "transitive" | "unresolved";
+  dependencyPath?: string[];
 };
 
 export type FindingKind = "deadline_passed" | "upcoming" | "registry_deprecated";
 
+export type FindingSeverity = "urgent" | "high" | "attention";
+export type FindingSource = "verified_catalog" | "npm_registry";
+export type DeadlineStatus = "passed" | "upcoming" | "registry_deprecated";
+
 export type Finding = {
   fingerprint: string;
   kind: FindingKind;
+  severity: FindingSeverity;
+  source: FindingSource;
+  deadlineStatus: DeadlineStatus;
   package: string;
   version: string | null;
   relationship: Dependency["relationship"];
   sourceFile: string;
+  dependencyPath: string[];
   title: string;
   detail: string;
+  recommendation: string;
+  replacementPackage: string | null;
+  migrationUrl: string | null;
+  migrationStrategy: "upgrade" | "replace" | "remove" | "manual" | "unknown";
+  replacementVersion: string | null;
+  codemodCommand: string | null;
+  breakingChanges: string | null;
+  noticeId: string | null;
   officialSourceUrl: string | null;
   changesWatchUrl: string | null;
   effectiveOn: string | null;
+};
+
+export type FindingGroup = {
+  key: string;
+  package: string;
+  version: string | null;
+  relationship: Dependency["relationship"];
+  severity: FindingSeverity;
+  deadlineStatus: DeadlineStatus;
+  kinds: FindingKind[];
+  sourceFiles: string[];
+  dependencyPaths: string[][];
+  recommendation: string;
+  replacementPackage: string | null;
+  migrationUrl: string | null;
+  officialSourceUrls: string[];
+  changesWatchUrls: string[];
+  effectiveOn: string | null;
+  details: string[];
+  migrationStrategies: string[];
+  codemodCommands: string[];
+  breakingChanges: string[];
 };
 
 export type ScanReport = {
@@ -63,6 +106,7 @@ export type ScanReport = {
   catalog: { version: string; generatedAt: string; source: string };
   manifests: string[];
   findings: Finding[];
+  groups: FindingGroup[];
   summary: {
     deadlinePassed: number;
     upcoming: number;
@@ -70,6 +114,10 @@ export type ScanReport = {
     total: number;
     registryChecked: number;
     registryCandidates: number;
+    urgent: number;
+    high: number;
+    attention: number;
+    grouped: number;
   };
   complete: boolean;
   warnings: string[];

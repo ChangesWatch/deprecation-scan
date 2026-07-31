@@ -36,6 +36,14 @@ outputs:
     description: "Verified deadlines inside the configured upcoming window."
   deprecated-package-count:
     description: "Exact installed packages marked deprecated by the npm registry."
+  urgent-count:
+    description: "Grouped packages with a passed verified deadline."
+  high-count:
+    description: "Grouped packages with an upcoming verified deadline."
+  attention-count:
+    description: "Grouped packages with registry deprecation findings."
+  grouped-count:
+    description: "Number of grouped package findings."
   registry-checked-count:
     description: "Unique resolved npm package versions checked against the registry."
   registry-candidate-count:

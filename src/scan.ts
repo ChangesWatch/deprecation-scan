@@ -3,7 +3,7 @@ import { lstat, readFile, readdir } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import { parse as parseYaml } from "yaml";
 import semver from "semver";
-import { catalogSchema, type Catalog, type Dependency, type Finding, type ScanReport } from "./types.js";
+import { catalogSchema, type Catalog, type Dependency, type Finding, type FindingGroup, type ScanReport } from "./types.js";
 
 export const CATALOG_URL = "https://www.changes.watch/api/v1/deprecations/catalog.json";
 const MAX_DISCOVERY_DEPTH = 12;
@@ -55,6 +55,7 @@ export async function scanRepository(options: ScanOptions): Promise<ScanReport> 
     : { findings: [], complete: true, checkedCount: 0, candidateCount: 0 };
   findings.push(...registry.findings);
   findings.sort((left, right) => left.kind.localeCompare(right.kind) || left.package.localeCompare(right.package) || (left.version ?? "").localeCompare(right.version ?? ""));
+  const groups = groupFindings(findings);
 
   const count = (kind: Finding["kind"]) => findings.filter((finding) => finding.kind === kind).length;
   return {
@@ -65,6 +66,7 @@ export async function scanRepository(options: ScanOptions): Promise<ScanReport> 
     catalog: { version: catalog.catalogVersion, generatedAt: catalog.generatedAt, source: options.catalogUrl ?? CATALOG_URL },
     manifests: manifests.map((file) => relative(root, file).split(sep).join("/")),
     findings,
+    groups,
     summary: {
       deadlinePassed: count("deadline_passed"),
       upcoming: count("upcoming"),
@@ -72,6 +74,10 @@ export async function scanRepository(options: ScanOptions): Promise<ScanReport> 
       total: findings.length,
       registryChecked: registry.checkedCount,
       registryCandidates: registry.candidateCount,
+      urgent: groups.filter((group) => group.severity === "urgent").length,
+      high: groups.filter((group) => group.severity === "high").length,
+      attention: groups.filter((group) => group.severity === "attention").length,
+      grouped: groups.length,
     },
     complete: registry.complete,
     warnings,
@@ -197,7 +203,24 @@ function matchCatalog(dependencies: Dependency[], catalog: Catalog, upcomingDays
         if (!notice.effectiveOn) continue;
         const kind = notice.effectiveOn < today ? "deadline_passed" : notice.effectiveOn <= cutoff ? "upcoming" : null;
         if (!kind) continue;
-        findings.push(makeFinding({ kind, dependency, title: notice.title, detail: notice.replacement ?? `Verified deprecation deadline: ${notice.effectiveOn}.`, officialSourceUrl: notice.officialSourceUrl, changesWatchUrl: notice.changesWatchUrl, effectiveOn: notice.effectiveOn, identity: notice.id }));
+        findings.push(makeFinding({
+          kind,
+          dependency,
+          title: notice.title,
+          detail: notice.replacement ?? `Verified deprecation deadline: ${notice.effectiveOn}.`,
+          recommendation: buildRecommendation(notice.replacement, target.replacementPackage, target.migrationStrategy ?? "unknown", target.replacementVersion ?? null, target.codemodCommand ?? null),
+          replacementPackage: target.replacementPackage,
+          migrationStrategy: target.migrationStrategy ?? "unknown",
+          replacementVersion: target.replacementVersion ?? null,
+          codemodCommand: target.codemodCommand ?? null,
+          breakingChanges: target.breakingChanges ?? null,
+          migrationUrl: notice.migrationUrl,
+          noticeId: notice.id,
+          officialSourceUrl: notice.officialSourceUrl,
+          changesWatchUrl: notice.changesWatchUrl,
+          effectiveOn: notice.effectiveOn,
+          identity: notice.id,
+        }));
       }
     }
   }
@@ -225,7 +248,24 @@ async function findRegistryDeprecations(dependencies: Dependency[], warnings: st
       const message = typeof deprecatedValue === "string" ? deprecatedValue : null;
       return {
         findings: message
-          ? candidate.dependencies.map((dependency) => makeFinding({ kind: "registry_deprecated", dependency, title: `${candidate.name}@${candidate.version} is deprecated`, detail: message.slice(0, 1_000), officialSourceUrl: `https://www.npmjs.com/package/${candidate.name}/v/${candidate.version}`, changesWatchUrl: null, effectiveOn: null, identity: `npm:${candidate.name}@${candidate.version}` }))
+          ? candidate.dependencies.map((dependency) => makeFinding({
+            kind: "registry_deprecated",
+            dependency,
+            title: `${candidate.name}@${candidate.version} is deprecated`,
+            detail: message.slice(0, 1_000),
+            recommendation: "Find a maintained replacement or upgrade path, then verify the test suite before merging.",
+            replacementPackage: null,
+            migrationStrategy: "manual",
+            replacementVersion: null,
+            codemodCommand: null,
+            breakingChanges: null,
+            migrationUrl: null,
+            noticeId: null,
+            officialSourceUrl: `https://www.npmjs.com/package/${candidate.name}/v/${candidate.version}`,
+            changesWatchUrl: null,
+            effectiveOn: null,
+            identity: `npm:${candidate.name}@${candidate.version}`,
+          }))
           : [],
       };
     } catch {
@@ -267,9 +307,81 @@ async function mapWithConcurrency<T, R>(values: T[], concurrency: number, task: 
   return results;
 }
 
-function makeFinding(input: Omit<Finding, "fingerprint" | "package" | "version" | "relationship" | "sourceFile"> & { dependency: Dependency; identity: string }): Finding {
+function makeFinding(input: Omit<Finding, "fingerprint" | "package" | "version" | "relationship" | "sourceFile" | "severity" | "source" | "deadlineStatus" | "dependencyPath"> & { dependency: Dependency; identity: string }): Finding {
   const { dependency, identity, ...rest } = input;
-  return { ...rest, package: dependency.name, version: dependency.version, relationship: dependency.relationship, sourceFile: dependency.source, fingerprint: createHash("sha256").update([identity, dependency.name, dependency.version, dependency.source].join("\0")).digest("hex") };
+  const severity = input.kind === "deadline_passed" ? "urgent" : input.kind === "upcoming" ? "high" : "attention";
+  const source = input.kind === "registry_deprecated" ? "npm_registry" : "verified_catalog";
+  const deadlineStatus = input.kind === "deadline_passed" ? "passed" : input.kind === "upcoming" ? "upcoming" : "registry_deprecated";
+  return {
+    ...rest,
+    package: dependency.name,
+    version: dependency.version,
+    relationship: dependency.relationship,
+    sourceFile: dependency.source,
+    dependencyPath: dependency.dependencyPath ?? [dependency.name],
+    severity,
+    source,
+    deadlineStatus,
+    fingerprint: createHash("sha256").update([identity, dependency.name, dependency.version, dependency.source].join("\0")).digest("hex"),
+  };
+}
+
+function buildRecommendation(replacementText: string | null, replacementPackage: string | null, strategy: string, replacementVersion: string | null, codemodCommand: string | null): string {
+  if (codemodCommand) return `Use the verified codemod: ${codemodCommand}`;
+  if (replacementPackage && replacementVersion) return `${strategy === "replace" ? "Replace" : "Upgrade"} to ${replacementPackage}@${replacementVersion}.`;
+  if (replacementPackage) return `${strategy === "replace" ? "Replace" : "Upgrade"} with ${replacementPackage}.`;
+  if (replacementText) return replacementText;
+  return "Review the vendor migration guidance and plan the upgrade.";
+}
+
+const severityRank = { urgent: 3, high: 2, attention: 1 } as const;
+
+function groupFindings(findings: Finding[]): FindingGroup[] {
+  const groups = new Map<string, FindingGroup>();
+  for (const finding of findings) {
+    const key = [finding.package, finding.version ?? "unresolved"].join("\0");
+    const current = groups.get(key);
+    if (!current) {
+      groups.set(key, {
+        key: finding.fingerprint,
+        package: finding.package,
+        version: finding.version,
+        relationship: finding.relationship,
+        severity: finding.severity,
+        deadlineStatus: finding.deadlineStatus,
+        kinds: [finding.kind],
+        sourceFiles: [finding.sourceFile],
+        dependencyPaths: [finding.dependencyPath],
+        recommendation: finding.recommendation,
+        replacementPackage: finding.replacementPackage,
+        migrationUrl: finding.migrationUrl,
+        migrationStrategies: finding.migrationStrategy === "unknown" ? [] : [finding.migrationStrategy],
+        codemodCommands: finding.codemodCommand ? [finding.codemodCommand] : [],
+        breakingChanges: finding.breakingChanges ? [finding.breakingChanges] : [],
+        officialSourceUrls: finding.officialSourceUrl ? [finding.officialSourceUrl] : [],
+        changesWatchUrls: finding.changesWatchUrl ? [finding.changesWatchUrl] : [],
+        effectiveOn: finding.effectiveOn,
+        details: [finding.detail],
+      });
+      continue;
+    }
+    if (severityRank[finding.severity] > severityRank[current.severity]) current.severity = finding.severity;
+    if (!current.kinds.includes(finding.kind)) current.kinds.push(finding.kind);
+    if (!current.sourceFiles.includes(finding.sourceFile)) current.sourceFiles.push(finding.sourceFile);
+    if (!current.dependencyPaths.some((path) => path.join("\0") === finding.dependencyPath.join("\0"))) current.dependencyPaths.push(finding.dependencyPath);
+    if (finding.officialSourceUrl && !current.officialSourceUrls.includes(finding.officialSourceUrl)) current.officialSourceUrls.push(finding.officialSourceUrl);
+    if (finding.changesWatchUrl && !current.changesWatchUrls.includes(finding.changesWatchUrl)) current.changesWatchUrls.push(finding.changesWatchUrl);
+    if (!current.details.includes(finding.detail)) current.details.push(finding.detail);
+    if (!current.replacementPackage && finding.replacementPackage) current.replacementPackage = finding.replacementPackage;
+    if (!current.migrationUrl && finding.migrationUrl) current.migrationUrl = finding.migrationUrl;
+    if (finding.migrationStrategy !== "unknown" && !current.migrationStrategies.includes(finding.migrationStrategy)) current.migrationStrategies.push(finding.migrationStrategy);
+    if (finding.codemodCommand && !current.codemodCommands.includes(finding.codemodCommand)) current.codemodCommands.push(finding.codemodCommand);
+    if (finding.breakingChanges && !current.breakingChanges.includes(finding.breakingChanges)) current.breakingChanges.push(finding.breakingChanges);
+    if (current.recommendation.startsWith("Find a maintained") && !finding.recommendation.startsWith("Find a maintained")) current.recommendation = finding.recommendation;
+    if (current.deadlineStatus !== "passed" && finding.deadlineStatus === "passed") current.deadlineStatus = "passed";
+    if (!current.effectiveOn || (finding.effectiveOn && finding.effectiveOn < current.effectiveOn)) current.effectiveOn = finding.effectiveOn;
+  }
+  return [...groups.values()].sort((left, right) => severityRank[right.severity] - severityRank[left.severity] || left.package.localeCompare(right.package) || (left.version ?? "").localeCompare(right.version ?? ""));
 }
 
 async function readJson(file: string, warnings: string[]): Promise<Record<string, unknown> | null> {
