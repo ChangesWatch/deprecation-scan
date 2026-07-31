@@ -2,8 +2,8 @@ name: "Changes.Watch deprecation scan"
 description: "Scan npm, pnpm, and Yarn dependencies against verified Changes.Watch deprecation data."
 author: "Changes.Watch"
 branding:
-  icon: "alert-triangle"
-  color: "orange"
+  icon: "activity"
+  color: "blue"
 inputs:
   path:
     description: "Repository directory to scan."
