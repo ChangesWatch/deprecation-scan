@@ -48,7 +48,7 @@ your organization requires an immutable dependency reference, pin the verified
 release commit instead:
 
 ```yaml
-- uses: ChangesWatch/deprecation-scan@3ab27c339fef43539c5195ce4686558367fbc639 # v1.0.4
+- uses: ChangesWatch/deprecation-scan@9293e2af1b75a8f6450f5764dbd72ec63fec89d3 # v1.0.5
 ```
 
 ## Inputs
@@ -100,7 +100,7 @@ The CLI reads `package.json`, `package-lock.json`, `pnpm-lock.yaml`, and common 
 
 - `deadline_passed`: a human-verified active notice has an effective date before today and matches the exact installed package version.
 - `upcoming`: a matching verified effective date falls inside `upcoming-days`.
-- `registry_deprecated`: npm marks the exact installed version as deprecated.
+- `registry_deprecated`: npm marks the exact installed version as deprecated. The job summary links it to a version-specific Changes.Watch package-status page labelled as automated npm data, never as a verified editorial card.
 
 Every catalog finding includes the official vendor source and Changes.Watch detail URL. Registry failures warn independently and do not turn a scan into a false clean result.
 
