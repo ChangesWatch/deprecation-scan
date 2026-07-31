@@ -34,4 +34,19 @@ describe("formatFindingForSummary", () => {
     expect(summary).not.toContain("Open Changes.Watch card");
     expect(summary).not.toContain("javascript:");
   });
+
+  it("links exact registry deprecations to an explicitly labelled package status page", () => {
+    const summary = formatFindingForSummary({
+      ...finding,
+      kind: "registry_deprecated",
+      package: "@changeswatch/legacy-client",
+      version: "3.2.1",
+      changesWatchUrl: null,
+    });
+
+    expect(summary).toContain(
+      "[Open Changes.Watch package status](https://www.changes.watch/packages/npm/%40changeswatch/legacy-client?version=3.2.1)",
+    );
+    expect(summary).not.toContain("Open Changes.Watch card");
+  });
 });

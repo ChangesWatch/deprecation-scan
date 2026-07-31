@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Clarified the Action's privacy model, read-only permissions, SHA-pinning option, and v1 beta boundaries.
+- Link exact npm registry deprecation findings to a version-specific Changes.Watch package-status page, clearly labelled as automated registry data rather than editorially verified coverage.
 
 ## 1.0.4 — 2026-07-31
 

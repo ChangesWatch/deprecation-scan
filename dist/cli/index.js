@@ -11433,10 +11433,25 @@ function formatTextReport(report) {
 function formatFindingForSummary(finding) {
     const links = [
         formatHttpsLink("Open Changes.Watch card", finding.changesWatchUrl),
+        formatHttpsLink("Open Changes.Watch package status", buildNpmPackageStatusUrl(finding)),
         formatHttpsLink("Official source", finding.officialSourceUrl),
     ].filter((link) => Boolean(link));
     const suffix = links.length > 0 ? ` — ${links.join(" · ")}` : "";
     return `- **${finding.kind}** ${finding.package}@${finding.version ?? "unresolved"}: ${finding.detail}${suffix}`;
+}
+/**
+ * Registry findings are version-specific. Their Changes.Watch destination is
+ * deliberately labelled as automated registry status, not a verified card.
+ */
+function buildNpmPackageStatusUrl(finding) {
+    if (finding.kind !== "registry_deprecated" || !finding.version)
+        return null;
+    if (!/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/.test(finding.package))
+        return null;
+    if (!/^[0-9a-z][0-9a-z._+~-]{0,199}$/i.test(finding.version))
+        return null;
+    const packagePath = finding.package.split("/").map(encodeURIComponent).join("/");
+    return `https://www.changes.watch/packages/npm/${packagePath}?version=${encodeURIComponent(finding.version)}`;
 }
 function formatHttpsLink(label, value) {
     if (!value)
@@ -19261,7 +19276,7 @@ async function scanRepository(options) {
     const count = (kind) => findings.filter((finding) => finding.kind === kind).length;
     return {
         schemaVersion: 1,
-        scannerVersion: "1.0.4",
+        scannerVersion: "1.0.5",
         generatedAt: new Date().toISOString(),
         root: ".",
         catalog: { version: catalog.catalogVersion, generatedAt: catalog.generatedAt, source: options.catalogUrl ?? CATALOG_URL },

@@ -59,7 +59,7 @@ export async function scanRepository(options: ScanOptions): Promise<ScanReport> 
   const count = (kind: Finding["kind"]) => findings.filter((finding) => finding.kind === kind).length;
   return {
     schemaVersion: 1,
-    scannerVersion: "1.0.4",
+    scannerVersion: "1.0.5",
     generatedAt: new Date().toISOString(),
     root: ".",
     catalog: { version: catalog.catalogVersion, generatedAt: catalog.generatedAt, source: options.catalogUrl ?? CATALOG_URL },
