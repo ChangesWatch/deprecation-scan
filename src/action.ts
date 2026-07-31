@@ -1,6 +1,7 @@
 import * as core from "@actions/core";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { formatFindingForSummary } from "./format.js";
 import { scanRepository } from "./scan.js";
 
 async function run(): Promise<void> {
@@ -25,7 +26,7 @@ async function run(): Promise<void> {
   await core.summary
     .addHeading("Changes.Watch deprecation scan")
     .addTable([[{ data: "Category", header: true }, { data: "Count", header: true }], ["Deadline passed", String(report.summary.deadlinePassed)], ["Upcoming", String(report.summary.upcoming)], ["Registry deprecated", String(report.summary.deprecatedPackage)], ["Registry checked", `${report.summary.registryChecked}/${report.summary.registryCandidates}`]])
-    .addRaw(report.findings.length ? `\n${report.findings.map((finding) => `- **${finding.kind}** ${finding.package}@${finding.version ?? "unresolved"}: ${finding.detail}`).join("\n")}` : "\nNo matching deprecations found.")
+    .addRaw(report.findings.length ? `\n${report.findings.map(formatFindingForSummary).join("\n")}` : "\nNo matching deprecations found.")
     .addRaw(`\n\nWarn-only beta. Report: \`${reportPath}\`.`)
     .write();
   for (const finding of report.findings) core.warning(`${finding.kind}: ${finding.package}@${finding.version ?? "unresolved"} — ${finding.detail}`, { file: finding.sourceFile });

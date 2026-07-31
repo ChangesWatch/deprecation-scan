@@ -43084,6 +43084,39 @@ var lib_core = __nccwpck_require__(7484);
 const promises_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:fs/promises");
 ;// CONCATENATED MODULE: external "node:path"
 const external_node_path_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:path");
+;// CONCATENATED MODULE: ./src/format.ts
+function formatTextReport(report) {
+    const lines = [`Changes.Watch deprecation scan: ${report.summary.total} finding(s)`];
+    for (const finding of report.findings)
+        lines.push(`${finding.kind}: ${finding.package}@${finding.version ?? "unresolved"} — ${finding.detail}`);
+    if (report.warnings.length)
+        lines.push("Warnings:", ...report.warnings.map((warning) => `- ${warning}`));
+    return lines.join("\n");
+}
+/**
+ * Produces Markdown for GitHub's job summary. Only HTTPS URLs are embedded so
+ * untrusted catalog or registry strings cannot create an unsafe action link.
+ */
+function formatFindingForSummary(finding) {
+    const links = [
+        formatHttpsLink("Open Changes.Watch card", finding.changesWatchUrl),
+        formatHttpsLink("Official source", finding.officialSourceUrl),
+    ].filter((link) => Boolean(link));
+    const suffix = links.length > 0 ? ` — ${links.join(" · ")}` : "";
+    return `- **${finding.kind}** ${finding.package}@${finding.version ?? "unresolved"}: ${finding.detail}${suffix}`;
+}
+function formatHttpsLink(label, value) {
+    if (!value)
+        return null;
+    try {
+        const url = new URL(value);
+        return url.protocol === "https:" ? `[${label}](${url.toString()})` : null;
+    }
+    catch {
+        return null;
+    }
+}
+
 // EXTERNAL MODULE: external "node:crypto"
 var external_node_crypto_ = __nccwpck_require__(7598);
 // EXTERNAL MODULE: ./node_modules/yaml/dist/index.js
@@ -50895,7 +50928,7 @@ async function scanRepository(options) {
     const count = (kind) => findings.filter((finding) => finding.kind === kind).length;
     return {
         schemaVersion: 1,
-        scannerVersion: "1.0.3",
+        scannerVersion: "1.0.4",
         generatedAt: new Date().toISOString(),
         root: ".",
         catalog: { version: catalog.catalogVersion, generatedAt: catalog.generatedAt, source: options.catalogUrl ?? CATALOG_URL },
@@ -51198,6 +51231,7 @@ finally {
 
 
 
+
 async function run() {
     const root = (0,external_node_path_namespaceObject.resolve)(lib_core.getInput("path") || ".");
     const configPath = lib_core.getInput("config") || ".changes-watch.json";
@@ -51221,7 +51255,7 @@ async function run() {
     await lib_core.summary
         .addHeading("Changes.Watch deprecation scan")
         .addTable([[{ data: "Category", header: true }, { data: "Count", header: true }], ["Deadline passed", String(report.summary.deadlinePassed)], ["Upcoming", String(report.summary.upcoming)], ["Registry deprecated", String(report.summary.deprecatedPackage)], ["Registry checked", `${report.summary.registryChecked}/${report.summary.registryCandidates}`]])
-        .addRaw(report.findings.length ? `\n${report.findings.map((finding) => `- **${finding.kind}** ${finding.package}@${finding.version ?? "unresolved"}: ${finding.detail}`).join("\n")}` : "\nNo matching deprecations found.")
+        .addRaw(report.findings.length ? `\n${report.findings.map(formatFindingForSummary).join("\n")}` : "\nNo matching deprecations found.")
         .addRaw(`\n\nWarn-only beta. Report: \`${reportPath}\`.`)
         .write();
     for (const finding of report.findings)

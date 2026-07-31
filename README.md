@@ -66,7 +66,7 @@ release commit instead:
 
 `deadline-passed-count`, `upcoming-count`, `deprecated-package-count`, `registry-checked-count`, `registry-candidate-count`, `scan-complete`, and `report-path`.
 
-`report-path` is a runner-local JSON report at `.changes-watch/deprecation-report.json`. Upload it with `actions/upload-artifact` only if your repository policy permits that.
+`report-path` is a runner-local JSON report at `.changes-watch/deprecation-report.json`. Upload it with `actions/upload-artifact` only if your repository policy permits that. Verified catalog findings in the GitHub Job Summary link directly to their Changes.Watch update card, where teams can assess the signal and subscribe to the affected product.
 
 Registry lookups are deduplicated by exact package@version, run with bounded
 concurrency, and default to at most 500 unique versions. If the configured
