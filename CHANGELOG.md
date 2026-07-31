@@ -1,0 +1,6 @@
+# Changelog
+
+## 1.0.0 — 2026-07-31
+
+- First beta release of the privacy-first scanner CLI and GitHub Action.
+- Warn-only checks for verified Changes.Watch deadlines and npm exact-version deprecation metadata.
