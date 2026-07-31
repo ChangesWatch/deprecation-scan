@@ -50900,7 +50900,7 @@ async function scanRepository(options) {
     const count = (kind) => findings.filter((finding) => finding.kind === kind).length;
     return {
         schemaVersion: 1,
-        scannerVersion: "1.0.3",
+        scannerVersion: "1.1.0",
         generatedAt: new Date().toISOString(),
         root: ".",
         catalog: { version: catalog.catalogVersion, generatedAt: catalog.generatedAt, source: options.catalogUrl ?? CATALOG_URL },
@@ -51359,8 +51359,9 @@ async function run() {
             `${severityLabel(group.severity)} ${group.package}@${group.version ?? "unresolved"}`,
             `${group.relationship} · ${group.deadlineStatus}`,
             formatRecommendation(group),
+            formatEvidenceLinks(group),
         ])
-        : [["No matching deprecations", "—", "No action required."]];
+        : [["No matching deprecations", "—", "No action required.", "—"]];
     await lib_core.summary
         .addHeading("Changes.Watch deprecation readiness")
         .addTable([
@@ -51372,8 +51373,8 @@ async function run() {
     ])
         .addHeading("What needs attention", 3)
         .addTable([
-        [{ data: "Dependency", header: true }, { data: "Context", header: true }, { data: "Recommended next action", header: true }],
-        ...groupedRows.map((row) => row.map((value) => ({ data: escapeMarkdown(value) }))),
+        [{ data: "Dependency", header: true }, { data: "Context", header: true }, { data: "Recommended next action", header: true }, { data: "Evidence", header: true }],
+        ...groupedRows.map((row) => row.map((value, index) => ({ data: index === 3 ? value : escapeMarkdown(value) }))),
     ])
         .addHeading("Coverage and scan notes", 3)
         .addRaw(`Registry metadata checked: ${report.summary.registryChecked}/${report.summary.registryCandidates}.\n\n${report.warnings.length ? report.warnings.map((warning) => `- ${escapeMarkdown(warning)}`).join("\n") : "No coverage warnings."}`)
@@ -51396,6 +51397,24 @@ function formatRecommendation(group) {
     if (group.breakingChanges.length)
         parts.push(`Breaking changes: ${group.breakingChanges[0]}`);
     return parts.join(" ");
+}
+function formatEvidenceLinks(group) {
+    const links = [
+        safeMarkdownLink("Changes.Watch card", group.changesWatchUrls[0]),
+        safeMarkdownLink("Official source", group.officialSourceUrls[0]),
+    ].filter(Boolean);
+    return links.length ? links.join(" · ") : "—";
+}
+function safeMarkdownLink(label, value) {
+    if (!value)
+        return null;
+    try {
+        const url = new URL(value);
+        return url.protocol === "https:" ? `[${label}](${url.toString()})` : null;
+    }
+    catch {
+        return null;
+    }
 }
 function escapeMarkdown(value) {
     const markdownCharacters = new Set(["\\", "`", "*", "_", "{", "}", "[", "]", "(", ")", "#", "+", "-", ".", "!", "|", ">"]);

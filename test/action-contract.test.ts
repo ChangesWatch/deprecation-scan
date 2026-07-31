@@ -18,7 +18,8 @@ describe("GitHub Action contract", () => {
     const action = await readFile("src/action.ts", "utf8");
     const scanner = await readFile("src/scan.ts", "utf8");
     expect(action).not.toContain("catalog-url");
-    expect(action).toContain("formatFindingForSummary");
+    expect(action).toContain("formatEvidenceLinks");
+    expect(action).toContain("safeMarkdownLink");
     expect(scanner).toContain("https://www.changes.watch/api/v1/deprecations/catalog.json");
     expect(scanner).toContain("https://registry.npmjs.org/");
   });
