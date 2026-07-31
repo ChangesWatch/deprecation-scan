@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Clarified the Action's privacy model, read-only permissions, SHA-pinning option, and v1 beta boundaries.
+
 ## 1.0.1 — 2026-07-31
 
 - Use a calm blue `activity` badge in GitHub Marketplace to communicate continuous monitoring rather than a blocking warning.
