@@ -1,5 +1,7 @@
 # Changes.Watch Deprecation Scan
 
+Result contract: v2 (grouped deprecation readiness findings).
+
 [![CI](https://github.com/ChangesWatch/deprecation-scan/actions/workflows/ci.yml/badge.svg)](https://github.com/ChangesWatch/deprecation-scan/actions/workflows/ci.yml)
 [View on GitHub Marketplace](https://github.com/marketplace/actions/changes-watch-deprecation-scan)
 
