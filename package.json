@@ -1,0 +1,53 @@
+{
+  "name": "@changes-watch/deprecation-scan",
+  "version": "1.0.0",
+  "description": "Privacy-first deprecation scanner and GitHub Action powered by the Changes.Watch catalog.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/action/index.js",
+  "bin": {
+    "changes-watch": "dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "action.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "npm run build:action && npm run build:cli",
+    "build:action": "ncc build src/action.ts -o dist/action",
+    "build:cli": "ncc build src/cli.ts -o dist/cli",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "@actions/core": "^2.0.1",
+    "semver": "^7.7.4",
+    "yaml": "^2.8.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^24.3.0",
+    "@types/semver": "^7.7.1",
+    "@vercel/ncc": "^0.38.4",
+    "eslint": "^10.8.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.2",
+    "vitest": "^4.1.0"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChangesWatch/deprecation-scan.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ChangesWatch/deprecation-scan/issues"
+  },
+  "homepage": "https://www.changes.watch/developers/github-action"
+}

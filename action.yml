@@ -1,0 +1,41 @@
+name: "Changes.Watch deprecation scan"
+description: "Scan npm, pnpm, and Yarn dependencies against verified Changes.Watch deprecation data."
+author: "Changes.Watch"
+branding:
+  icon: "alert-triangle"
+  color: "orange"
+inputs:
+  path:
+    description: "Repository directory to scan."
+    required: false
+    default: "."
+  config:
+    description: "Optional Changes.Watch config relative to path."
+    required: false
+    default: ".changes-watch.json"
+  upcoming-days:
+    description: "Days before a verified deadline is considered upcoming."
+    required: false
+    default: "30"
+  include-transitive:
+    description: "Inspect resolved transitive packages from supported lockfiles."
+    required: false
+    default: "true"
+  fail-on:
+    description: "Initial beta supports warn-only behavior; use never."
+    required: false
+    default: "never"
+outputs:
+  deadline-passed-count:
+    description: "Verified deprecations whose effective date has passed."
+  upcoming-count:
+    description: "Verified deadlines inside the configured upcoming window."
+  deprecated-package-count:
+    description: "Exact installed packages marked deprecated by the npm registry."
+  scan-complete:
+    description: "Whether required sources completed successfully."
+  report-path:
+    description: "Runner-local path to the structured JSON report."
+runs:
+  using: "node24"
+  main: "dist/action/index.js"

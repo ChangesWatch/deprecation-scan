@@ -1,0 +1,14 @@
+name: Bug report
+description: Report a reproducible scanner issue without private repository contents.
+body:
+  - type: textarea
+    attributes:
+      label: What happened?
+      description: Do not paste secrets, private manifests, or full lockfiles.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Action or CLI version
+    validations:
+      required: true
