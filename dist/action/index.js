@@ -51401,9 +51401,18 @@ function formatRecommendation(group) {
 function formatEvidenceLinks(group) {
     const links = [
         safeMarkdownLink("Changes.Watch card", group.changesWatchUrls[0]),
+        group.deadlineStatus === "registry_deprecated" ? safePackageStatusLink(group.package, group.version) : null,
         safeMarkdownLink("Official source", group.officialSourceUrls[0]),
     ].filter(Boolean);
     return links.length ? links.join(" · ") : "—";
+}
+function safePackageStatusLink(packageName, version) {
+    if (!version || !/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/i.test(packageName))
+        return null;
+    if (!/^[0-9a-z][0-9a-z._+~-]{0,199}$/i.test(version))
+        return null;
+    const packagePath = packageName.split("/").map(encodeURIComponent).join("/");
+    return `[Package status](https://www.changes.watch/packages/npm/${packagePath}?version=${encodeURIComponent(version)})`;
 }
 function safeMarkdownLink(label, value) {
     if (!value)
