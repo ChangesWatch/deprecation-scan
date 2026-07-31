@@ -30,7 +30,7 @@ async function run(): Promise<void> {
     ? report.groups.slice(0, 100).map((group) => [
       `${severityLabel(group.severity)} ${group.package}@${group.version ?? "unresolved"}`,
       `${group.relationship} · ${group.deadlineStatus}`,
-      group.recommendation,
+      formatRecommendation(group),
     ])
     : [["No matching deprecations", "—", "No action required."]];
   await core.summary
@@ -57,6 +57,14 @@ async function run(): Promise<void> {
 
 function severityLabel(severity: "urgent" | "high" | "attention"): string {
   return severity === "urgent" ? "URGENT" : severity === "high" ? "HIGH" : "ATTENTION";
+}
+
+function formatRecommendation(group: { recommendation: string; migrationStrategies: string[]; codemodCommands: string[]; breakingChanges: string[] }): string {
+  const parts = [group.recommendation];
+  if (group.migrationStrategies.length) parts.push(`Strategy: ${group.migrationStrategies.join(", ")}`);
+  if (group.codemodCommands.length) parts.push(`Codemod: ${group.codemodCommands[0]}`);
+  if (group.breakingChanges.length) parts.push(`Breaking changes: ${group.breakingChanges[0]}`);
+  return parts.join(" ");
 }
 
 function escapeMarkdown(value: string): string {
