@@ -100,7 +100,7 @@ describe("scanRepository", () => {
 
   it("rejects unsafe registry lookup limits", async () => {
     const root = await fixture({ "package.json": JSON.stringify({}) });
-    await expect(scanRepository({ root, catalog, registryChecks: false, maxRegistryLookups: 0 })).rejects.toThrow("max-registry-checks must be an integer between 1 and 1000.");
+    await expect(scanRepository({ root, catalog, registryChecks: false, maxRegistryLookups: 0 })).rejects.toThrow("max-registry-checks must be an integer between 1 and 2000.");
   });
 });
 

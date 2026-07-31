@@ -59,7 +59,7 @@ release commit instead:
 | `config` | `.changes-watch.json` | Optional JSON config inside `path`; its bounded `upcomingWithinDays` and `includeTransitiveRegistry` values override the matching Action inputs. |
 | `upcoming-days` | `30` | Upcoming deadline window. |
 | `include-transitive` | `true` | Read resolved transitive dependencies from lockfiles. |
-| `max-registry-checks` | `500` | Bounded maximum of unique exact package@version checks against npm (1–1000). |
+| `max-registry-checks` | `500` | Bounded maximum of unique exact package@version checks against npm (1–2000). |
 | `fail-on` | `never` | Warn-only in v1 beta. |
 
 ## Outputs
@@ -73,7 +73,7 @@ concurrency, and default to at most 500 unique versions. If the configured
 limit is reached, `scan-complete` is `false` and the summary reports
 `Registry checked: checked/candidates`; it never treats partial registry
 coverage as a clean result. Raise `max-registry-checks` only up to the hard
-limit of 1,000.
+limit of 2,000.
 
 ## CLI
 

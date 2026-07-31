@@ -11,7 +11,7 @@ const MAX_MANIFESTS = 250;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_DEPENDENCIES = 5_000;
 const DEFAULT_MAX_REGISTRY_LOOKUPS = 500;
-const ABSOLUTE_MAX_REGISTRY_LOOKUPS = 1_000;
+const ABSOLUTE_MAX_REGISTRY_LOOKUPS = 2_000;
 const REGISTRY_LOOKUP_CONCURRENCY = 8;
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", ".next", "dist", "build", "coverage", ".cache", ".changes-watch"]);
 
@@ -59,7 +59,7 @@ export async function scanRepository(options: ScanOptions): Promise<ScanReport> 
   const count = (kind: Finding["kind"]) => findings.filter((finding) => finding.kind === kind).length;
   return {
     schemaVersion: 1,
-    scannerVersion: "1.0.2",
+    scannerVersion: "1.0.3",
     generatedAt: new Date().toISOString(),
     root: ".",
     catalog: { version: catalog.catalogVersion, generatedAt: catalog.generatedAt, source: options.catalogUrl ?? CATALOG_URL },

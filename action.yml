@@ -22,7 +22,7 @@ inputs:
     required: false
     default: "true"
   max-registry-checks:
-    description: "Maximum unique resolved npm package versions to check against the registry (1-1000)."
+    description: "Maximum unique resolved npm package versions to check against the registry (1-2000)."
     required: false
     default: "500"
   fail-on:

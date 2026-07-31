@@ -27,7 +27,7 @@ function parseArguments(values: string[]): Arguments {
   const upcomingDays = Number(get("--upcoming-days", "30"));
   if (!Number.isInteger(upcomingDays) || upcomingDays < 0 || upcomingDays > 3650) throw new Error("--upcoming-days must be an integer between 0 and 3650.");
   const maxRegistryLookups = Number(get("--max-registry-checks", "500"));
-  if (!Number.isInteger(maxRegistryLookups) || maxRegistryLookups < 1 || maxRegistryLookups > 1000) throw new Error("--max-registry-checks must be an integer between 1 and 1000.");
+  if (!Number.isInteger(maxRegistryLookups) || maxRegistryLookups < 1 || maxRegistryLookups > 2000) throw new Error("--max-registry-checks must be an integer between 1 and 2000.");
   const format = get("--format", "text");
   if (format !== "text" && format !== "json") throw new Error("--format must be text or json.");
   return { path: get("--path", ".") ?? ".", configPath: get("--config", ".changes-watch.json") ?? ".changes-watch.json", format, output: get("--output"), upcomingDays, includeTransitive: !values.includes("--no-transitive"), registryChecks: !values.includes("--no-registry"), maxRegistryLookups };

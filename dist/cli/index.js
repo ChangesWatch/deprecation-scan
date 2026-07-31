@@ -19203,7 +19203,7 @@ const MAX_MANIFESTS = 250;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_DEPENDENCIES = 5_000;
 const DEFAULT_MAX_REGISTRY_LOOKUPS = 500;
-const ABSOLUTE_MAX_REGISTRY_LOOKUPS = 1_000;
+const ABSOLUTE_MAX_REGISTRY_LOOKUPS = 2_000;
 const REGISTRY_LOOKUP_CONCURRENCY = 8;
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", ".next", "dist", "build", "coverage", ".cache", ".changes-watch"]);
 async function fetchCatalog() {
@@ -19238,7 +19238,7 @@ async function scanRepository(options) {
     const count = (kind) => findings.filter((finding) => finding.kind === kind).length;
     return {
         schemaVersion: 1,
-        scannerVersion: "1.0.2",
+        scannerVersion: "1.0.3",
         generatedAt: new Date().toISOString(),
         root: ".",
         catalog: { version: catalog.catalogVersion, generatedAt: catalog.generatedAt, source: options.catalogUrl ?? CATALOG_URL },
@@ -19565,8 +19565,8 @@ function parseArguments(values) {
     if (!Number.isInteger(upcomingDays) || upcomingDays < 0 || upcomingDays > 3650)
         throw new Error("--upcoming-days must be an integer between 0 and 3650.");
     const maxRegistryLookups = Number(get("--max-registry-checks", "500"));
-    if (!Number.isInteger(maxRegistryLookups) || maxRegistryLookups < 1 || maxRegistryLookups > 1000)
-        throw new Error("--max-registry-checks must be an integer between 1 and 1000.");
+    if (!Number.isInteger(maxRegistryLookups) || maxRegistryLookups < 1 || maxRegistryLookups > 2000)
+        throw new Error("--max-registry-checks must be an integer between 1 and 2000.");
     const format = get("--format", "text");
     if (format !== "text" && format !== "json")
         throw new Error("--format must be text or json.");

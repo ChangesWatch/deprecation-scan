@@ -1,6 +1,6 @@
 {
   "name": "@changes-watch/deprecation-scan",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Privacy-first deprecation scanner and GitHub Action powered by the Changes.Watch catalog.",
   "license": "Apache-2.0",
   "type": "module",

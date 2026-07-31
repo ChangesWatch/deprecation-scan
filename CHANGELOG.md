@@ -4,6 +4,10 @@
 
 - Clarified the Action's privacy model, read-only permissions, SHA-pinning option, and v1 beta boundaries.
 
+## 1.0.3 — 2026-07-31
+
+- Raise the configurable registry coverage cap to 2,000 unique exact package versions so large dependency graphs can opt into a complete scan while preserving the safer default of 500.
+
 ## 1.0.2 — 2026-07-31
 
 - Increase the default bounded npm registry coverage from 100 to 500 unique exact package versions, with a configurable `max-registry-checks` input/CLI flag (hard cap: 1,000).
