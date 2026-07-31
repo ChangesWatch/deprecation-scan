@@ -48,7 +48,7 @@ your organization requires an immutable dependency reference, pin the verified
 release commit instead:
 
 ```yaml
-- uses: ChangesWatch/deprecation-scan@03cbacb23c054d6b789a74dfef77c3d5b7a36885 # v1.0.2
+- uses: ChangesWatch/deprecation-scan@6653c4340ca056fa73d6469916dafbc942f6645d # v1.0.3
 ```
 
 ## Inputs
