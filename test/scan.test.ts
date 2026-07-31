@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { scanRepository } from "../src/scan.js";
 import type { Catalog } from "../src/types.js";
 
@@ -69,6 +69,38 @@ describe("scanRepository", () => {
     const report = await scanRepository({ root, catalog, registryChecks: false });
     expect(report.summary.deadlinePassed).toBe(2);
     expect(report.findings.map((finding) => finding.version).sort()).toEqual(["3.1.0", "3.2.1"]);
+  });
+
+  it("deduplicates registry versions, reports coverage, and remains incomplete when a bounded limit is reached", async () => {
+    const root = await fixture({
+      "package.json": JSON.stringify({}),
+      "package-lock.json": JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          "node_modules/alpha": { version: "1.0.0" },
+          "node_modules/beta": { version: "2.0.0" },
+          "node_modules/gamma": { version: "3.0.0" },
+          "packages/duplicate/node_modules/alpha": { version: "1.0.0" },
+        },
+      }),
+    });
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+
+    try {
+      const report = await scanRepository({ root, catalog, maxRegistryLookups: 2 });
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(report.summary).toMatchObject({ registryChecked: 2, registryCandidates: 3 });
+      expect(report.complete).toBe(false);
+      expect(report.warnings).toContain("Registry checks are capped at 2 of 3 unique resolved package versions. Set max-registry-checks to raise the bounded limit.");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects unsafe registry lookup limits", async () => {
+    const root = await fixture({ "package.json": JSON.stringify({}) });
+    await expect(scanRepository({ root, catalog, registryChecks: false, maxRegistryLookups: 0 })).rejects.toThrow("max-registry-checks must be an integer between 1 and 1000.");
   });
 });
 

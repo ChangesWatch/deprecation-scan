@@ -21,6 +21,10 @@ inputs:
     description: "Inspect resolved transitive packages from supported lockfiles."
     required: false
     default: "true"
+  max-registry-checks:
+    description: "Maximum unique resolved npm package versions to check against the registry (1-1000)."
+    required: false
+    default: "500"
   fail-on:
     description: "Initial beta supports warn-only behavior; use never."
     required: false
@@ -32,6 +36,10 @@ outputs:
     description: "Verified deadlines inside the configured upcoming window."
   deprecated-package-count:
     description: "Exact installed packages marked deprecated by the npm registry."
+  registry-checked-count:
+    description: "Unique resolved npm package versions checked against the registry."
+  registry-candidate-count:
+    description: "Unique resolved npm package versions eligible for registry checks."
   scan-complete:
     description: "Whether required sources completed successfully."
   report-path:

@@ -10,7 +10,9 @@ const MAX_DISCOVERY_DEPTH = 12;
 const MAX_MANIFESTS = 250;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_DEPENDENCIES = 5_000;
-const MAX_REGISTRY_LOOKUPS = 100;
+const DEFAULT_MAX_REGISTRY_LOOKUPS = 500;
+const ABSOLUTE_MAX_REGISTRY_LOOKUPS = 1_000;
+const REGISTRY_LOOKUP_CONCURRENCY = 8;
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", ".next", "dist", "build", "coverage", ".cache", ".changes-watch"]);
 
 export type ScanOptions = {
@@ -21,6 +23,7 @@ export type ScanOptions = {
   catalog?: Catalog;
   catalogUrl?: string;
   registryChecks?: boolean;
+  maxRegistryLookups?: number;
 };
 
 export async function fetchCatalog(): Promise<Catalog> {
@@ -45,17 +48,18 @@ export async function scanRepository(options: ScanOptions): Promise<ScanReport> 
   const manifests = await discoverFiles(root);
   const dependencies = await loadDependencies(root, manifests, includeTransitive, warnings);
   const findings = matchCatalog(dependencies, catalog, upcomingDays, warnings);
+  const maxRegistryLookups = validateRegistryLookups(options.maxRegistryLookups ?? DEFAULT_MAX_REGISTRY_LOOKUPS);
 
   const registry = options.registryChecks ?? true
-    ? await findRegistryDeprecations(dependencies, warnings)
-    : { findings: [], complete: true };
+    ? await findRegistryDeprecations(dependencies, warnings, maxRegistryLookups)
+    : { findings: [], complete: true, checkedCount: 0, candidateCount: 0 };
   findings.push(...registry.findings);
   findings.sort((left, right) => left.kind.localeCompare(right.kind) || left.package.localeCompare(right.package) || (left.version ?? "").localeCompare(right.version ?? ""));
 
   const count = (kind: Finding["kind"]) => findings.filter((finding) => finding.kind === kind).length;
   return {
     schemaVersion: 1,
-    scannerVersion: "1.0.0",
+    scannerVersion: "1.0.2",
     generatedAt: new Date().toISOString(),
     root: ".",
     catalog: { version: catalog.catalogVersion, generatedAt: catalog.generatedAt, source: options.catalogUrl ?? CATALOG_URL },
@@ -66,6 +70,8 @@ export async function scanRepository(options: ScanOptions): Promise<ScanReport> 
       upcoming: count("upcoming"),
       deprecatedPackage: count("registry_deprecated"),
       total: findings.length,
+      registryChecked: registry.checkedCount,
+      registryCandidates: registry.candidateCount,
     },
     complete: registry.complete,
     warnings,
@@ -198,26 +204,67 @@ function matchCatalog(dependencies: Dependency[], catalog: Catalog, upcomingDays
   return findings;
 }
 
-async function findRegistryDeprecations(dependencies: Dependency[], warnings: string[]): Promise<{ findings: Finding[]; complete: boolean }> {
-  const candidates = dependencies.filter((dependency) => dependency.version).slice(0, MAX_REGISTRY_LOOKUPS);
+type RegistryCandidate = { name: string; version: string; dependencies: Dependency[] };
+type RegistryCheckResult = { findings: Finding[]; warning?: string };
+
+async function findRegistryDeprecations(dependencies: Dependency[], warnings: string[], maxLookups: number): Promise<{ findings: Finding[]; complete: boolean; checkedCount: number; candidateCount: number }> {
+  const candidates = uniqueRegistryCandidates(dependencies);
+  const checkedCandidates = candidates.slice(0, maxLookups);
   let complete = true;
-  if (dependencies.filter((dependency) => dependency.version).length > MAX_REGISTRY_LOOKUPS) { warnings.push(`Registry checks are capped at ${MAX_REGISTRY_LOOKUPS} resolved packages.`); complete = false; }
-  const findings: Finding[] = [];
-  for (const dependency of candidates) {
+  if (candidates.length > maxLookups) {
+    warnings.push(`Registry checks are capped at ${maxLookups} of ${candidates.length} unique resolved package versions. Set max-registry-checks to raise the bounded limit.`);
+    complete = false;
+  }
+  const results = await mapWithConcurrency(checkedCandidates, REGISTRY_LOOKUP_CONCURRENCY, async (candidate): Promise<RegistryCheckResult> => {
     try {
-      const packagePath = `${encodeURIComponent(dependency.name)}/${encodeURIComponent(dependency.version ?? "")}`;
+      const packagePath = `${encodeURIComponent(candidate.name)}/${encodeURIComponent(candidate.version)}`;
       const response = await fetchWithTimeout(`https://registry.npmjs.org/${packagePath}`, 5_000, { accept: "application/json" });
-      if (!response.ok) { warnings.push(`npm registry check failed for ${dependency.name}@${dependency.version}: HTTP ${response.status}.`); complete = false; continue; }
+      if (!response.ok) return { findings: [], warning: `npm registry check failed for ${candidate.name}@${candidate.version}: HTTP ${response.status}.` };
       const payload: unknown = await response.json();
       const deprecatedValue = asRecord(payload).deprecated;
       const message = typeof deprecatedValue === "string" ? deprecatedValue : null;
-      if (message) findings.push(makeFinding({ kind: "registry_deprecated", dependency, title: `${dependency.name}@${dependency.version} is deprecated`, detail: message.slice(0, 1_000), officialSourceUrl: `https://www.npmjs.com/package/${dependency.name}/v/${dependency.version}`, changesWatchUrl: null, effectiveOn: null, identity: `npm:${dependency.name}@${dependency.version}` }));
+      return {
+        findings: message
+          ? candidate.dependencies.map((dependency) => makeFinding({ kind: "registry_deprecated", dependency, title: `${candidate.name}@${candidate.version} is deprecated`, detail: message.slice(0, 1_000), officialSourceUrl: `https://www.npmjs.com/package/${candidate.name}/v/${candidate.version}`, changesWatchUrl: null, effectiveOn: null, identity: `npm:${candidate.name}@${candidate.version}` }))
+          : [],
+      };
     } catch {
-      warnings.push(`npm registry check timed out or failed for ${dependency.name}@${dependency.version}.`);
+      return { findings: [], warning: `npm registry check timed out or failed for ${candidate.name}@${candidate.version}.` };
+    }
+  });
+  const findings: Finding[] = [];
+  for (const result of results) {
+    findings.push(...result.findings);
+    if (result.warning) {
+      warnings.push(result.warning);
       complete = false;
     }
   }
-  return { findings, complete };
+  return { findings, complete, checkedCount: checkedCandidates.length, candidateCount: candidates.length };
+}
+
+function uniqueRegistryCandidates(dependencies: Dependency[]): RegistryCandidate[] {
+  const candidates = new Map<string, RegistryCandidate>();
+  for (const dependency of dependencies) {
+    if (!dependency.version) continue;
+    const key = `${dependency.name}\u0000${dependency.version}`;
+    const current = candidates.get(key);
+    if (current) current.dependencies.push(dependency);
+    else candidates.set(key, { name: dependency.name, version: dependency.version, dependencies: [dependency] });
+  }
+  return [...candidates.values()].sort((left, right) => left.name.localeCompare(right.name) || left.version.localeCompare(right.version));
+}
+
+async function mapWithConcurrency<T, R>(values: T[], concurrency: number, task: (value: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex++;
+      results[index] = await task(values[index]!);
+    }
+  }));
+  return results;
 }
 
 function makeFinding(input: Omit<Finding, "fingerprint" | "package" | "version" | "relationship" | "sourceFile"> & { dependency: Dependency; identity: string }): Finding {
@@ -260,4 +307,5 @@ function parsePnpmKey(raw: string): Pick<Dependency, "name" | "version"> | null 
 function yarnDescriptorName(value: string): string | null { const at = value.startsWith("@") ? value.indexOf("@", value.indexOf("/") + 1) : value.indexOf("@"); return at > 0 ? value.slice(0, at) : null; }
 function safeSatisfies(version: string, range: string, warnings: string[], name: string): boolean { try { return semver.satisfies(version, range, { includePrerelease: true }); } catch { warnings.push(`Ignored invalid catalog range ${range} for ${name}.`); return false; } }
 function validateUpcomingDays(value: number): number { if (!Number.isInteger(value) || value < 0 || value > 3650) throw new Error("upcoming-days must be an integer between 0 and 3650."); return value; }
+function validateRegistryLookups(value: number): number { if (!Number.isInteger(value) || value < 1 || value > ABSOLUTE_MAX_REGISTRY_LOOKUPS) throw new Error(`max-registry-checks must be an integer between 1 and ${ABSOLUTE_MAX_REGISTRY_LOOKUPS}.`); return value; }
 async function fetchWithTimeout(url: string, timeoutMs: number, headers: Record<string, string>): Promise<Response> { const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs); try { return await fetch(url, { headers, redirect: "error", signal: controller.signal }); } finally { clearTimeout(timer); } }

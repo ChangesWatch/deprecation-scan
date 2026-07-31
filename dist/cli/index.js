@@ -19202,7 +19202,9 @@ const MAX_DISCOVERY_DEPTH = 12;
 const MAX_MANIFESTS = 250;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_DEPENDENCIES = 5_000;
-const MAX_REGISTRY_LOOKUPS = 100;
+const DEFAULT_MAX_REGISTRY_LOOKUPS = 500;
+const ABSOLUTE_MAX_REGISTRY_LOOKUPS = 1_000;
+const REGISTRY_LOOKUP_CONCURRENCY = 8;
 const IGNORED_DIRECTORIES = new Set([".git", "node_modules", ".next", "dist", "build", "coverage", ".cache", ".changes-watch"]);
 async function fetchCatalog() {
     const response = await fetchWithTimeout(CATALOG_URL, 10_000, { accept: "application/json" });
@@ -19227,15 +19229,16 @@ async function scanRepository(options) {
     const manifests = await discoverFiles(root);
     const dependencies = await loadDependencies(root, manifests, includeTransitive, warnings);
     const findings = matchCatalog(dependencies, catalog, upcomingDays, warnings);
+    const maxRegistryLookups = validateRegistryLookups(options.maxRegistryLookups ?? DEFAULT_MAX_REGISTRY_LOOKUPS);
     const registry = options.registryChecks ?? true
-        ? await findRegistryDeprecations(dependencies, warnings)
-        : { findings: [], complete: true };
+        ? await findRegistryDeprecations(dependencies, warnings, maxRegistryLookups)
+        : { findings: [], complete: true, checkedCount: 0, candidateCount: 0 };
     findings.push(...registry.findings);
     findings.sort((left, right) => left.kind.localeCompare(right.kind) || left.package.localeCompare(right.package) || (left.version ?? "").localeCompare(right.version ?? ""));
     const count = (kind) => findings.filter((finding) => finding.kind === kind).length;
     return {
         schemaVersion: 1,
-        scannerVersion: "1.0.0",
+        scannerVersion: "1.0.2",
         generatedAt: new Date().toISOString(),
         root: ".",
         catalog: { version: catalog.catalogVersion, generatedAt: catalog.generatedAt, source: options.catalogUrl ?? CATALOG_URL },
@@ -19246,6 +19249,8 @@ async function scanRepository(options) {
             upcoming: count("upcoming"),
             deprecatedPackage: count("registry_deprecated"),
             total: findings.length,
+            registryChecked: registry.checkedCount,
+            registryCandidates: registry.candidateCount,
         },
         complete: registry.complete,
         warnings,
@@ -19400,35 +19405,67 @@ function matchCatalog(dependencies, catalog, upcomingDays, warnings) {
     }
     return findings;
 }
-async function findRegistryDeprecations(dependencies, warnings) {
-    const candidates = dependencies.filter((dependency) => dependency.version).slice(0, MAX_REGISTRY_LOOKUPS);
+async function findRegistryDeprecations(dependencies, warnings, maxLookups) {
+    const candidates = uniqueRegistryCandidates(dependencies);
+    const checkedCandidates = candidates.slice(0, maxLookups);
     let complete = true;
-    if (dependencies.filter((dependency) => dependency.version).length > MAX_REGISTRY_LOOKUPS) {
-        warnings.push(`Registry checks are capped at ${MAX_REGISTRY_LOOKUPS} resolved packages.`);
+    if (candidates.length > maxLookups) {
+        warnings.push(`Registry checks are capped at ${maxLookups} of ${candidates.length} unique resolved package versions. Set max-registry-checks to raise the bounded limit.`);
         complete = false;
     }
-    const findings = [];
-    for (const dependency of candidates) {
+    const results = await mapWithConcurrency(checkedCandidates, REGISTRY_LOOKUP_CONCURRENCY, async (candidate) => {
         try {
-            const packagePath = `${encodeURIComponent(dependency.name)}/${encodeURIComponent(dependency.version ?? "")}`;
+            const packagePath = `${encodeURIComponent(candidate.name)}/${encodeURIComponent(candidate.version)}`;
             const response = await fetchWithTimeout(`https://registry.npmjs.org/${packagePath}`, 5_000, { accept: "application/json" });
-            if (!response.ok) {
-                warnings.push(`npm registry check failed for ${dependency.name}@${dependency.version}: HTTP ${response.status}.`);
-                complete = false;
-                continue;
-            }
+            if (!response.ok)
+                return { findings: [], warning: `npm registry check failed for ${candidate.name}@${candidate.version}: HTTP ${response.status}.` };
             const payload = await response.json();
             const deprecatedValue = asRecord(payload).deprecated;
             const message = typeof deprecatedValue === "string" ? deprecatedValue : null;
-            if (message)
-                findings.push(makeFinding({ kind: "registry_deprecated", dependency, title: `${dependency.name}@${dependency.version} is deprecated`, detail: message.slice(0, 1_000), officialSourceUrl: `https://www.npmjs.com/package/${dependency.name}/v/${dependency.version}`, changesWatchUrl: null, effectiveOn: null, identity: `npm:${dependency.name}@${dependency.version}` }));
+            return {
+                findings: message
+                    ? candidate.dependencies.map((dependency) => makeFinding({ kind: "registry_deprecated", dependency, title: `${candidate.name}@${candidate.version} is deprecated`, detail: message.slice(0, 1_000), officialSourceUrl: `https://www.npmjs.com/package/${candidate.name}/v/${candidate.version}`, changesWatchUrl: null, effectiveOn: null, identity: `npm:${candidate.name}@${candidate.version}` }))
+                    : [],
+            };
         }
         catch {
-            warnings.push(`npm registry check timed out or failed for ${dependency.name}@${dependency.version}.`);
+            return { findings: [], warning: `npm registry check timed out or failed for ${candidate.name}@${candidate.version}.` };
+        }
+    });
+    const findings = [];
+    for (const result of results) {
+        findings.push(...result.findings);
+        if (result.warning) {
+            warnings.push(result.warning);
             complete = false;
         }
     }
-    return { findings, complete };
+    return { findings, complete, checkedCount: checkedCandidates.length, candidateCount: candidates.length };
+}
+function uniqueRegistryCandidates(dependencies) {
+    const candidates = new Map();
+    for (const dependency of dependencies) {
+        if (!dependency.version)
+            continue;
+        const key = `${dependency.name}\u0000${dependency.version}`;
+        const current = candidates.get(key);
+        if (current)
+            current.dependencies.push(dependency);
+        else
+            candidates.set(key, { name: dependency.name, version: dependency.version, dependencies: [dependency] });
+    }
+    return [...candidates.values()].sort((left, right) => left.name.localeCompare(right.name) || left.version.localeCompare(right.version));
+}
+async function mapWithConcurrency(values, concurrency, task) {
+    const results = new Array(values.length);
+    let nextIndex = 0;
+    await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+        while (nextIndex < values.length) {
+            const index = nextIndex++;
+            results[index] = await task(values[index]);
+        }
+    }));
+    return results;
 }
 function makeFinding(input) {
     const { dependency, identity, ...rest } = input;
@@ -19490,6 +19527,8 @@ catch {
 } }
 function validateUpcomingDays(value) { if (!Number.isInteger(value) || value < 0 || value > 3650)
     throw new Error("upcoming-days must be an integer between 0 and 3650."); return value; }
+function validateRegistryLookups(value) { if (!Number.isInteger(value) || value < 1 || value > ABSOLUTE_MAX_REGISTRY_LOOKUPS)
+    throw new Error(`max-registry-checks must be an integer between 1 and ${ABSOLUTE_MAX_REGISTRY_LOOKUPS}.`); return value; }
 async function fetchWithTimeout(url, timeoutMs, headers) { const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs); try {
     return await fetch(url, { headers, redirect: "error", signal: controller.signal });
 }
@@ -19504,7 +19543,7 @@ finally {
 
 async function main() {
     const args = parseArguments(process.argv.slice(2));
-    const report = await scanRepository({ root: args.path, configPath: args.configPath, upcomingDays: args.upcomingDays, includeTransitive: args.includeTransitive, registryChecks: args.registryChecks });
+    const report = await scanRepository({ root: args.path, configPath: args.configPath, upcomingDays: args.upcomingDays, includeTransitive: args.includeTransitive, maxRegistryLookups: args.maxRegistryLookups, registryChecks: args.registryChecks });
     const text = args.format === "json" ? `${JSON.stringify(report, null, 2)}\n` : `${formatTextReport(report)}\n`;
     if (args.output) {
         const output = (0,external_node_path_namespaceObject.resolve)(args.path, args.output);
@@ -19518,17 +19557,20 @@ function parseArguments(values) {
     if (values[0] && values[0] !== "scan" && values[0] !== "--help" && values[0] !== "-h")
         throw new Error(`Unsupported command: ${values[0]}. Use changes-watch scan.`);
     if (values.includes("--help") || values.includes("-h")) {
-        process.stdout.write("Usage: changes-watch scan [--path .] [--config .changes-watch.json] [--format text|json] [--output report.json] [--upcoming-days 30] [--no-transitive] [--no-registry]\n");
+        process.stdout.write("Usage: changes-watch scan [--path .] [--config .changes-watch.json] [--format text|json] [--output report.json] [--upcoming-days 30] [--max-registry-checks 500] [--no-transitive] [--no-registry]\n");
         process.exit(0);
     }
     const get = (name, fallback) => { const index = values.indexOf(name); return index >= 0 ? values[index + 1] : fallback; };
     const upcomingDays = Number(get("--upcoming-days", "30"));
     if (!Number.isInteger(upcomingDays) || upcomingDays < 0 || upcomingDays > 3650)
         throw new Error("--upcoming-days must be an integer between 0 and 3650.");
+    const maxRegistryLookups = Number(get("--max-registry-checks", "500"));
+    if (!Number.isInteger(maxRegistryLookups) || maxRegistryLookups < 1 || maxRegistryLookups > 1000)
+        throw new Error("--max-registry-checks must be an integer between 1 and 1000.");
     const format = get("--format", "text");
     if (format !== "text" && format !== "json")
         throw new Error("--format must be text or json.");
-    return { path: get("--path", ".") ?? ".", configPath: get("--config", ".changes-watch.json") ?? ".changes-watch.json", format, output: get("--output"), upcomingDays, includeTransitive: !values.includes("--no-transitive"), registryChecks: !values.includes("--no-registry") };
+    return { path: get("--path", ".") ?? ".", configPath: get("--config", ".changes-watch.json") ?? ".changes-watch.json", format, output: get("--output"), upcomingDays, includeTransitive: !values.includes("--no-transitive"), registryChecks: !values.includes("--no-registry"), maxRegistryLookups };
 }
 main().catch((error) => { process.stderr.write(`changes-watch: ${error instanceof Error ? error.message : String(error)}\n`); process.exitCode = 2; });
 

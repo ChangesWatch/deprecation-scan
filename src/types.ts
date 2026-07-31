@@ -63,7 +63,14 @@ export type ScanReport = {
   catalog: { version: string; generatedAt: string; source: string };
   manifests: string[];
   findings: Finding[];
-  summary: { deadlinePassed: number; upcoming: number; deprecatedPackage: number; total: number };
+  summary: {
+    deadlinePassed: number;
+    upcoming: number;
+    deprecatedPackage: number;
+    total: number;
+    registryChecked: number;
+    registryCandidates: number;
+  };
   complete: boolean;
   warnings: string[];
 };

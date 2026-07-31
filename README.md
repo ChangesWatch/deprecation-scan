@@ -59,13 +59,21 @@ release commit instead:
 | `config` | `.changes-watch.json` | Optional JSON config inside `path`; its bounded `upcomingWithinDays` and `includeTransitiveRegistry` values override the matching Action inputs. |
 | `upcoming-days` | `30` | Upcoming deadline window. |
 | `include-transitive` | `true` | Read resolved transitive dependencies from lockfiles. |
+| `max-registry-checks` | `500` | Bounded maximum of unique exact package@version checks against npm (1–1000). |
 | `fail-on` | `never` | Warn-only in v1 beta. |
 
 ## Outputs
 
-`deadline-passed-count`, `upcoming-count`, `deprecated-package-count`, `scan-complete`, and `report-path`.
+`deadline-passed-count`, `upcoming-count`, `deprecated-package-count`, `registry-checked-count`, `registry-candidate-count`, `scan-complete`, and `report-path`.
 
 `report-path` is a runner-local JSON report at `.changes-watch/deprecation-report.json`. Upload it with `actions/upload-artifact` only if your repository policy permits that.
+
+Registry lookups are deduplicated by exact package@version, run with bounded
+concurrency, and default to at most 500 unique versions. If the configured
+limit is reached, `scan-complete` is `false` and the summary reports
+`Registry checked: checked/candidates`; it never treats partial registry
+coverage as a clean result. Raise `max-registry-checks` only up to the hard
+limit of 1,000.
 
 ## CLI
 
@@ -73,7 +81,7 @@ release commit instead:
 git clone https://github.com/ChangesWatch/deprecation-scan.git
 cd deprecation-scan
 npm ci
-node dist/cli/index.js scan --path /path/to/project --format text
+node dist/cli/index.js scan --path /path/to/project --format text --max-registry-checks 500
 ```
 
 An npm distribution is planned; do not rely on an unpublished `npx` package name yet.

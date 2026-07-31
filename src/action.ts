@@ -10,18 +10,21 @@ async function run(): Promise<void> {
   if (failOn !== "never") throw new Error("Beta v1 is warn-only; fail-on must be never.");
   const upcomingDays = Number(core.getInput("upcoming-days") || "30");
   const includeTransitive = (core.getInput("include-transitive") || "true").toLowerCase() === "true";
-  const report = await scanRepository({ root, configPath, upcomingDays, includeTransitive, registryChecks: true });
+  const maxRegistryLookups = Number(core.getInput("max-registry-checks") || "500");
+  const report = await scanRepository({ root, configPath, upcomingDays, includeTransitive, maxRegistryLookups, registryChecks: true });
   const reportPath = resolve(root, ".changes-watch", "deprecation-report.json");
   await mkdir(resolve(root, ".changes-watch"), { recursive: true });
   await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   core.setOutput("deadline-passed-count", report.summary.deadlinePassed);
   core.setOutput("upcoming-count", report.summary.upcoming);
   core.setOutput("deprecated-package-count", report.summary.deprecatedPackage);
+  core.setOutput("registry-checked-count", report.summary.registryChecked);
+  core.setOutput("registry-candidate-count", report.summary.registryCandidates);
   core.setOutput("scan-complete", String(report.complete));
   core.setOutput("report-path", reportPath);
   await core.summary
     .addHeading("Changes.Watch deprecation scan")
-    .addTable([[{ data: "Category", header: true }, { data: "Count", header: true }], ["Deadline passed", String(report.summary.deadlinePassed)], ["Upcoming", String(report.summary.upcoming)], ["Registry deprecated", String(report.summary.deprecatedPackage)]])
+    .addTable([[{ data: "Category", header: true }, { data: "Count", header: true }], ["Deadline passed", String(report.summary.deadlinePassed)], ["Upcoming", String(report.summary.upcoming)], ["Registry deprecated", String(report.summary.deprecatedPackage)], ["Registry checked", `${report.summary.registryChecked}/${report.summary.registryCandidates}`]])
     .addRaw(report.findings.length ? `\n${report.findings.map((finding) => `- **${finding.kind}** ${finding.package}@${finding.version ?? "unresolved"}: ${finding.detail}`).join("\n")}` : "\nNo matching deprecations found.")
     .addRaw(`\n\nWarn-only beta. Report: \`${reportPath}\`.`)
     .write();

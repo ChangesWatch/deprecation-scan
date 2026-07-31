@@ -4,6 +4,11 @@
 
 - Clarified the Action's privacy model, read-only permissions, SHA-pinning option, and v1 beta boundaries.
 
+## 1.0.2 — 2026-07-31
+
+- Increase the default bounded npm registry coverage from 100 to 500 unique exact package versions, with a configurable `max-registry-checks` input/CLI flag (hard cap: 1,000).
+- Deduplicate registry checks, use bounded concurrency, and expose checked/candidate coverage in the Action outputs and summary.
+
 ## 1.0.1 — 2026-07-31
 
 - Use a calm blue `activity` badge in GitHub Marketplace to communicate continuous monitoring rather than a blocking warning.

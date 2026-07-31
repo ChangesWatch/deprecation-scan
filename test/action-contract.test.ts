@@ -8,6 +8,8 @@ describe("GitHub Action contract", () => {
     expect(action).toContain("main: \"dist/action/index.js\"");
     expect(action).toContain("default: \"never\"");
     expect(action).toContain("deadline-passed-count");
+    expect(action).toContain("max-registry-checks");
+    expect(action).toContain("registry-checked-count");
   });
 
   it("keeps Action catalog access fixed to Changes.Watch", async () => {
