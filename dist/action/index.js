@@ -43084,39 +43084,6 @@ var lib_core = __nccwpck_require__(7484);
 const promises_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:fs/promises");
 ;// CONCATENATED MODULE: external "node:path"
 const external_node_path_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:path");
-;// CONCATENATED MODULE: ./src/format.ts
-function formatTextReport(report) {
-    const lines = [`Changes.Watch deprecation scan: ${report.summary.total} finding(s)`];
-    for (const finding of report.findings)
-        lines.push(`${finding.kind}: ${finding.package}@${finding.version ?? "unresolved"} — ${finding.detail}`);
-    if (report.warnings.length)
-        lines.push("Warnings:", ...report.warnings.map((warning) => `- ${warning}`));
-    return lines.join("\n");
-}
-/**
- * Produces Markdown for GitHub's job summary. Only HTTPS URLs are embedded so
- * untrusted catalog or registry strings cannot create an unsafe action link.
- */
-function formatFindingForSummary(finding) {
-    const links = [
-        formatHttpsLink("Open Changes.Watch card", finding.changesWatchUrl),
-        formatHttpsLink("Official source", finding.officialSourceUrl),
-    ].filter((link) => Boolean(link));
-    const suffix = links.length > 0 ? ` — ${links.join(" · ")}` : "";
-    return `- **${finding.kind}** ${finding.package}@${finding.version ?? "unresolved"}: ${finding.detail}${suffix}`;
-}
-function formatHttpsLink(label, value) {
-    if (!value)
-        return null;
-    try {
-        const url = new URL(value);
-        return url.protocol === "https:" ? `[${label}](${url.toString()})` : null;
-    }
-    catch {
-        return null;
-    }
-}
-
 // EXTERNAL MODULE: external "node:crypto"
 var external_node_crypto_ = __nccwpck_require__(7598);
 // EXTERNAL MODULE: ./node_modules/yaml/dist/index.js
@@ -50860,6 +50827,10 @@ const targetSchema = object({
     affectedRange: schemas_string().min(1).max(200),
     targetKind: schemas_enum(["direct", "transitive", "runtime", "cli", "build", "peer", "unknown"]),
     replacementPackage: schemas_string().min(1).max(214).nullable(),
+    migrationStrategy: schemas_enum(["upgrade", "replace", "remove", "manual", "unknown"]).optional(),
+    replacementVersion: schemas_string().max(200).nullable().optional(),
+    codemodCommand: schemas_string().max(500).nullable().optional(),
+    breakingChanges: schemas_string().max(1000).nullable().optional(),
 });
 const noticeSchema = object({
     id: schemas_string().min(1).max(400),
@@ -50925,15 +50896,17 @@ async function scanRepository(options) {
         : { findings: [], complete: true, checkedCount: 0, candidateCount: 0 };
     findings.push(...registry.findings);
     findings.sort((left, right) => left.kind.localeCompare(right.kind) || left.package.localeCompare(right.package) || (left.version ?? "").localeCompare(right.version ?? ""));
+    const groups = groupFindings(findings);
     const count = (kind) => findings.filter((finding) => finding.kind === kind).length;
     return {
         schemaVersion: 1,
-        scannerVersion: "1.0.4",
+        scannerVersion: "1.0.3",
         generatedAt: new Date().toISOString(),
         root: ".",
         catalog: { version: catalog.catalogVersion, generatedAt: catalog.generatedAt, source: options.catalogUrl ?? CATALOG_URL },
         manifests: manifests.map((file) => (0,external_node_path_namespaceObject.relative)(root, file).split(external_node_path_namespaceObject.sep).join("/")),
         findings,
+        groups,
         summary: {
             deadlinePassed: count("deadline_passed"),
             upcoming: count("upcoming"),
@@ -50941,6 +50914,10 @@ async function scanRepository(options) {
             total: findings.length,
             registryChecked: registry.checkedCount,
             registryCandidates: registry.candidateCount,
+            urgent: groups.filter((group) => group.severity === "urgent").length,
+            high: groups.filter((group) => group.severity === "high").length,
+            attention: groups.filter((group) => group.severity === "attention").length,
+            grouped: groups.length,
         },
         complete: registry.complete,
         warnings,
@@ -51089,7 +51066,24 @@ function matchCatalog(dependencies, catalog, upcomingDays, warnings) {
                 const kind = notice.effectiveOn < today ? "deadline_passed" : notice.effectiveOn <= cutoff ? "upcoming" : null;
                 if (!kind)
                     continue;
-                findings.push(makeFinding({ kind, dependency, title: notice.title, detail: notice.replacement ?? `Verified deprecation deadline: ${notice.effectiveOn}.`, officialSourceUrl: notice.officialSourceUrl, changesWatchUrl: notice.changesWatchUrl, effectiveOn: notice.effectiveOn, identity: notice.id }));
+                findings.push(makeFinding({
+                    kind,
+                    dependency,
+                    title: notice.title,
+                    detail: notice.replacement ?? `Verified deprecation deadline: ${notice.effectiveOn}.`,
+                    recommendation: buildRecommendation(notice.replacement, target.replacementPackage, target.migrationStrategy ?? "unknown", target.replacementVersion ?? null, target.codemodCommand ?? null),
+                    replacementPackage: target.replacementPackage,
+                    migrationStrategy: target.migrationStrategy ?? "unknown",
+                    replacementVersion: target.replacementVersion ?? null,
+                    codemodCommand: target.codemodCommand ?? null,
+                    breakingChanges: target.breakingChanges ?? null,
+                    migrationUrl: notice.migrationUrl,
+                    noticeId: notice.id,
+                    officialSourceUrl: notice.officialSourceUrl,
+                    changesWatchUrl: notice.changesWatchUrl,
+                    effectiveOn: notice.effectiveOn,
+                    identity: notice.id,
+                }));
             }
         }
     }
@@ -51114,7 +51108,24 @@ async function findRegistryDeprecations(dependencies, warnings, maxLookups) {
             const message = typeof deprecatedValue === "string" ? deprecatedValue : null;
             return {
                 findings: message
-                    ? candidate.dependencies.map((dependency) => makeFinding({ kind: "registry_deprecated", dependency, title: `${candidate.name}@${candidate.version} is deprecated`, detail: message.slice(0, 1_000), officialSourceUrl: `https://www.npmjs.com/package/${candidate.name}/v/${candidate.version}`, changesWatchUrl: null, effectiveOn: null, identity: `npm:${candidate.name}@${candidate.version}` }))
+                    ? candidate.dependencies.map((dependency) => makeFinding({
+                        kind: "registry_deprecated",
+                        dependency,
+                        title: `${candidate.name}@${candidate.version} is deprecated`,
+                        detail: message.slice(0, 1_000),
+                        recommendation: "Find a maintained replacement or upgrade path, then verify the test suite before merging.",
+                        replacementPackage: null,
+                        migrationStrategy: "manual",
+                        replacementVersion: null,
+                        codemodCommand: null,
+                        breakingChanges: null,
+                        migrationUrl: null,
+                        noticeId: null,
+                        officialSourceUrl: `https://www.npmjs.com/package/${candidate.name}/v/${candidate.version}`,
+                        changesWatchUrl: null,
+                        effectiveOn: null,
+                        identity: `npm:${candidate.name}@${candidate.version}`,
+                    }))
                     : [],
             };
         }
@@ -51159,7 +51170,95 @@ async function mapWithConcurrency(values, concurrency, task) {
 }
 function makeFinding(input) {
     const { dependency, identity, ...rest } = input;
-    return { ...rest, package: dependency.name, version: dependency.version, relationship: dependency.relationship, sourceFile: dependency.source, fingerprint: (0,external_node_crypto_.createHash)("sha256").update([identity, dependency.name, dependency.version, dependency.source].join("\0")).digest("hex") };
+    const severity = input.kind === "deadline_passed" ? "urgent" : input.kind === "upcoming" ? "high" : "attention";
+    const source = input.kind === "registry_deprecated" ? "npm_registry" : "verified_catalog";
+    const deadlineStatus = input.kind === "deadline_passed" ? "passed" : input.kind === "upcoming" ? "upcoming" : "registry_deprecated";
+    return {
+        ...rest,
+        package: dependency.name,
+        version: dependency.version,
+        relationship: dependency.relationship,
+        sourceFile: dependency.source,
+        dependencyPath: dependency.dependencyPath ?? [dependency.name],
+        severity,
+        source,
+        deadlineStatus,
+        fingerprint: (0,external_node_crypto_.createHash)("sha256").update([identity, dependency.name, dependency.version, dependency.source].join("\0")).digest("hex"),
+    };
+}
+function buildRecommendation(replacementText, replacementPackage, strategy, replacementVersion, codemodCommand) {
+    if (codemodCommand)
+        return `Use the verified codemod: ${codemodCommand}`;
+    if (replacementPackage && replacementVersion)
+        return `${strategy === "replace" ? "Replace" : "Upgrade"} to ${replacementPackage}@${replacementVersion}.`;
+    if (replacementPackage)
+        return `${strategy === "replace" ? "Replace" : "Upgrade"} with ${replacementPackage}.`;
+    if (replacementText)
+        return replacementText;
+    return "Review the vendor migration guidance and plan the upgrade.";
+}
+const severityRank = { urgent: 3, high: 2, attention: 1 };
+function groupFindings(findings) {
+    const groups = new Map();
+    for (const finding of findings) {
+        const key = [finding.package, finding.version ?? "unresolved"].join("\0");
+        const current = groups.get(key);
+        if (!current) {
+            groups.set(key, {
+                key: finding.fingerprint,
+                package: finding.package,
+                version: finding.version,
+                relationship: finding.relationship,
+                severity: finding.severity,
+                deadlineStatus: finding.deadlineStatus,
+                kinds: [finding.kind],
+                sourceFiles: [finding.sourceFile],
+                dependencyPaths: [finding.dependencyPath],
+                recommendation: finding.recommendation,
+                replacementPackage: finding.replacementPackage,
+                migrationUrl: finding.migrationUrl,
+                migrationStrategies: finding.migrationStrategy === "unknown" ? [] : [finding.migrationStrategy],
+                codemodCommands: finding.codemodCommand ? [finding.codemodCommand] : [],
+                breakingChanges: finding.breakingChanges ? [finding.breakingChanges] : [],
+                officialSourceUrls: finding.officialSourceUrl ? [finding.officialSourceUrl] : [],
+                changesWatchUrls: finding.changesWatchUrl ? [finding.changesWatchUrl] : [],
+                effectiveOn: finding.effectiveOn,
+                details: [finding.detail],
+            });
+            continue;
+        }
+        if (severityRank[finding.severity] > severityRank[current.severity])
+            current.severity = finding.severity;
+        if (!current.kinds.includes(finding.kind))
+            current.kinds.push(finding.kind);
+        if (!current.sourceFiles.includes(finding.sourceFile))
+            current.sourceFiles.push(finding.sourceFile);
+        if (!current.dependencyPaths.some((path) => path.join("\0") === finding.dependencyPath.join("\0")))
+            current.dependencyPaths.push(finding.dependencyPath);
+        if (finding.officialSourceUrl && !current.officialSourceUrls.includes(finding.officialSourceUrl))
+            current.officialSourceUrls.push(finding.officialSourceUrl);
+        if (finding.changesWatchUrl && !current.changesWatchUrls.includes(finding.changesWatchUrl))
+            current.changesWatchUrls.push(finding.changesWatchUrl);
+        if (!current.details.includes(finding.detail))
+            current.details.push(finding.detail);
+        if (!current.replacementPackage && finding.replacementPackage)
+            current.replacementPackage = finding.replacementPackage;
+        if (!current.migrationUrl && finding.migrationUrl)
+            current.migrationUrl = finding.migrationUrl;
+        if (finding.migrationStrategy !== "unknown" && !current.migrationStrategies.includes(finding.migrationStrategy))
+            current.migrationStrategies.push(finding.migrationStrategy);
+        if (finding.codemodCommand && !current.codemodCommands.includes(finding.codemodCommand))
+            current.codemodCommands.push(finding.codemodCommand);
+        if (finding.breakingChanges && !current.breakingChanges.includes(finding.breakingChanges))
+            current.breakingChanges.push(finding.breakingChanges);
+        if (current.recommendation.startsWith("Find a maintained") && !finding.recommendation.startsWith("Find a maintained"))
+            current.recommendation = finding.recommendation;
+        if (current.deadlineStatus !== "passed" && finding.deadlineStatus === "passed")
+            current.deadlineStatus = "passed";
+        if (!current.effectiveOn || (finding.effectiveOn && finding.effectiveOn < current.effectiveOn))
+            current.effectiveOn = finding.effectiveOn;
+    }
+    return [...groups.values()].sort((left, right) => severityRank[right.severity] - severityRank[left.severity] || left.package.localeCompare(right.package) || (left.version ?? "").localeCompare(right.version ?? ""));
 }
 async function readJson(file, warnings) {
     const text = await readBounded(file, warnings);
@@ -51231,7 +51330,6 @@ finally {
 
 
 
-
 async function run() {
     const root = (0,external_node_path_namespaceObject.resolve)(lib_core.getInput("path") || ".");
     const configPath = lib_core.getInput("config") || ".changes-watch.json";
@@ -51248,20 +51346,63 @@ async function run() {
     lib_core.setOutput("deadline-passed-count", report.summary.deadlinePassed);
     lib_core.setOutput("upcoming-count", report.summary.upcoming);
     lib_core.setOutput("deprecated-package-count", report.summary.deprecatedPackage);
+    lib_core.setOutput("urgent-count", report.summary.urgent);
+    lib_core.setOutput("high-count", report.summary.high);
+    lib_core.setOutput("attention-count", report.summary.attention);
+    lib_core.setOutput("grouped-count", report.summary.grouped);
     lib_core.setOutput("registry-checked-count", report.summary.registryChecked);
     lib_core.setOutput("registry-candidate-count", report.summary.registryCandidates);
     lib_core.setOutput("scan-complete", String(report.complete));
     lib_core.setOutput("report-path", reportPath);
+    const groupedRows = report.groups.length
+        ? report.groups.slice(0, 100).map((group) => [
+            `${severityLabel(group.severity)} ${group.package}@${group.version ?? "unresolved"}`,
+            `${group.relationship} · ${group.deadlineStatus}`,
+            formatRecommendation(group),
+        ])
+        : [["No matching deprecations", "—", "No action required."]];
     await lib_core.summary
-        .addHeading("Changes.Watch deprecation scan")
-        .addTable([[{ data: "Category", header: true }, { data: "Count", header: true }], ["Deadline passed", String(report.summary.deadlinePassed)], ["Upcoming", String(report.summary.upcoming)], ["Registry deprecated", String(report.summary.deprecatedPackage)], ["Registry checked", `${report.summary.registryChecked}/${report.summary.registryCandidates}`]])
-        .addRaw(report.findings.length ? `\n${report.findings.map(formatFindingForSummary).join("\n")}` : "\nNo matching deprecations found.")
-        .addRaw(`\n\nWarn-only beta. Report: \`${reportPath}\`.`)
+        .addHeading("Changes.Watch deprecation readiness")
+        .addTable([
+        [{ data: "Priority", header: true }, { data: "Count", header: true }],
+        ["Urgent · deadline passed", String(report.summary.urgent)],
+        ["High · deadline upcoming", String(report.summary.high)],
+        ["Attention · registry deprecated", String(report.summary.attention)],
+        ["Grouped packages", String(report.summary.grouped)],
+    ])
+        .addHeading("What needs attention", 3)
+        .addTable([
+        [{ data: "Dependency", header: true }, { data: "Context", header: true }, { data: "Recommended next action", header: true }],
+        ...groupedRows.map((row) => row.map((value) => ({ data: escapeMarkdown(value) }))),
+    ])
+        .addHeading("Coverage and scan notes", 3)
+        .addRaw(`Registry metadata checked: ${report.summary.registryChecked}/${report.summary.registryCandidates}.\n\n${report.warnings.length ? report.warnings.map((warning) => `- ${escapeMarkdown(warning)}`).join("\n") : "No coverage warnings."}`)
+        .addRaw("\n\nWarn-only beta. The machine-readable report remains available through the `report-path` output.")
         .write();
     for (const finding of report.findings)
-        lib_core.warning(`${finding.kind}: ${finding.package}@${finding.version ?? "unresolved"} — ${finding.detail}`, { file: finding.sourceFile });
+        lib_core.warning(`${finding.title}: ${sanitizeAnnotation(finding.recommendation)} — ${sanitizeAnnotation(finding.detail)}`, { file: finding.sourceFile });
     for (const warning of report.warnings)
-        lib_core.warning(warning);
+        lib_core.notice(sanitizeAnnotation(warning));
+}
+function severityLabel(severity) {
+    return severity === "urgent" ? "URGENT" : severity === "high" ? "HIGH" : "ATTENTION";
+}
+function formatRecommendation(group) {
+    const parts = [group.recommendation];
+    if (group.migrationStrategies.length)
+        parts.push(`Strategy: ${group.migrationStrategies.join(", ")}`);
+    if (group.codemodCommands.length)
+        parts.push(`Codemod: ${group.codemodCommands[0]}`);
+    if (group.breakingChanges.length)
+        parts.push(`Breaking changes: ${group.breakingChanges[0]}`);
+    return parts.join(" ");
+}
+function escapeMarkdown(value) {
+    const markdownCharacters = new Set(["\\", "`", "*", "_", "{", "}", "[", "]", "(", ")", "#", "+", "-", ".", "!", "|", ">"]);
+    return [...value].map((character) => markdownCharacters.has(character) ? `\\${character}` : character).join("").slice(0, 1_000);
+}
+function sanitizeAnnotation(value) {
+    return value.replace(/[\r\n]/g, " ").slice(0, 1_000);
 }
 run().catch((error) => lib_core.setFailed(error instanceof Error ? error.message : String(error)));
 

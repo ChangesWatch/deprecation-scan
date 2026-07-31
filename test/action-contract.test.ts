@@ -10,6 +10,8 @@ describe("GitHub Action contract", () => {
     expect(action).toContain("deadline-passed-count");
     expect(action).toContain("max-registry-checks");
     expect(action).toContain("registry-checked-count");
+    expect(action).toContain("urgent-count");
+    expect(action).toContain("grouped-count");
   });
 
   it("keeps Action catalog access fixed to Changes.Watch", async () => {

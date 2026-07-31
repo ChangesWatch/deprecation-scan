@@ -1,8 +1,8 @@
 import type { Finding, ScanReport } from "./types.js";
 
 export function formatTextReport(report: ScanReport): string {
-  const lines = [`Changes.Watch deprecation scan: ${report.summary.total} finding(s)`];
-  for (const finding of report.findings) lines.push(`${finding.kind}: ${finding.package}@${finding.version ?? "unresolved"} — ${finding.detail}`);
+  const lines = [`Changes.Watch deprecation readiness: ${report.summary.grouped} package(s), ${report.summary.total} finding(s)`];
+  for (const group of report.groups) lines.push(`${group.severity}: ${group.package}@${group.version ?? "unresolved"} (${group.relationship}) — ${group.recommendation}`);
   if (report.warnings.length) lines.push("Warnings:", ...report.warnings.map((warning) => `- ${warning}`));
   return lines.join("\n");
 }
